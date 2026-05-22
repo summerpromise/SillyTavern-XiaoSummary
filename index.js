@@ -345,37 +345,6 @@
      *  世界书读写
      * ========================================================= */
 
-    /**
-     * 从世界书条目里找出当前聊天「小总结-」类条目，返回已经被总结过的最大楼层 (0-based, -1 表示从未总结过)
-     */
-    function findMaxSummarizedFloor(entriesMap, chatId) {
-        if (!entriesMap || !chatId) return -1;
-        let maxFloor = -1;
-        const re = new RegExp(`^${escapeRegex(SUMMARY_PREFIX)}${escapeRegex(chatId)}-(\\d+)-(\\d+)$`);
-        for (const uid of Object.keys(entriesMap)) {
-            const e = entriesMap[uid];
-            if (!e || e.disable === true) continue;
-            const c = (e.comment || '').trim();
-            const m = c.match(re);
-            if (m) {
-                const end1Based = parseInt(m[2], 10);
-                if (!isNaN(end1Based)) {
-                    const end0Based = end1Based - 1;
-                    if (end0Based > maxFloor) maxFloor = end0Based;
-                }
-            }
-        }
-        return maxFloor;
-    }
-
-    function escapeRegex(s) {
-        return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-
-    /**
-     * 写入或追加一个「小总结-」条目
-     * 同一个 chatId 下永远只有一个 enabled 的「小总结-」条目，后续总结追加到 content
-     */
     async function upsertSummaryEntry(lorebookName, chatId, startIdx0, endIdx0, summaryText) {
         const ctx = SillyTavern.getContext();
         const wi = await ctx.loadWorldInfo(lorebookName);
@@ -385,45 +354,32 @@
         const entries = wi.entries;
         const start1 = startIdx0 + 1;
         const end1 = endIdx0 + 1;
+        const entryName = `${SUMMARY_PREFIX}${chatId}-${start1}-${end1}`;
 
-        // 找现有当前聊天的小总结条目
-        const prefixWithChat = `${SUMMARY_PREFIX}${chatId}-`;
         let existing = null;
         for (const uid of Object.keys(entries)) {
             const e = entries[uid];
             if (!e) continue;
-            const c = (e.comment || '').trim();
-            if (c.startsWith(prefixWithChat) && e.disable !== true) {
+            if ((e.comment || '').trim() === entryName && e.disable !== true) {
                 existing = e;
                 break;
             }
         }
 
+        const bodyContent = INTRODUCTORY_TEXT_FOR_LOREBOOK + '\n\n' + summaryText;
+
         if (existing) {
-            // 解析旧的起止
-            let oldStart = start1;
-            let oldEnd = end1;
-            const m = (existing.comment || '').match(/-(\d+)-(\d+)$/);
-            if (m) {
-                oldStart = parseInt(m[1], 10) || start1;
-                oldEnd = parseInt(m[2], 10) || end1;
-            }
-            const newEnd = Math.max(oldEnd, end1);
-            const newName = `${SUMMARY_PREFIX}${chatId}-${oldStart}-${newEnd}`;
-            const separator = `\n---\n[${start1}-${end1}]\n`;
-            existing.comment = newName;
-            existing.content = (existing.content || '') + separator + summaryText;
+            existing.content = bodyContent;
             existing.disable = false;
-            log(`追加小总结 → ${newName} (UID ${existing.uid})`);
+            log(`覆盖小总结 → ${entryName} (UID ${existing.uid})`);
         } else {
             const newUid = nextEntryUid(entries);
-            const newName = `${SUMMARY_PREFIX}${chatId}-${start1}-${end1}`;
             entries[newUid] = {
                 uid: newUid,
                 key: [],
                 keysecondary: [],
-                comment: newName,
-                content: INTRODUCTORY_TEXT_FOR_LOREBOOK + '\n\n' + summaryText,
+                comment: entryName,
+                content: bodyContent,
                 constant: true,
                 vectorized: false,
                 selective: true,
@@ -451,7 +407,7 @@
                 cooldown: 0,
                 delay: 0,
             };
-            log(`新建小总结 → ${newName} (UID ${newUid})`);
+            log(`新建小总结 → ${entryName} (UID ${newUid})`);
         }
 
         await ctx.saveWorldInfo(lorebookName, wi, true);
@@ -633,60 +589,24 @@
 
             const floorRange = `楼 ${start} - ${end}`;
             toast('info', `开始总结 (${floorRange}) …`);
-            setStatus(`正在调用 API 总结 ${floorRange} … (messages=${messages.length})`);
 
             const summary = await callChatCompletion(messages);
             if (!summary || !summary.trim()) throw new Error('AI 返回空内容');
 
             await upsertSummaryEntry(lorebookName, chatId, startIdx0, endIdx0, summary);
             toast('success', `总结完成 (${floorRange}) → 已写入「${lorebookName}」`);
-            setStatus(`完成：${floorRange} 已写入「${lorebookName}」`);
 
             // 记住这次起止，下次打开自动填上
             s.lastStartFloor = String(start);
             s.lastEndFloor = String(end);
             persist();
-
-            await refreshStatus();
         } catch (e) {
             err('小总结失败', e);
             toast('error', '总结失败：' + (e.message || e));
-            setStatus('错误：' + (e.message || e));
         } finally {
             isRunning = false;
             $btn.prop('disabled', false).html(originalLabel);
         }
-    }
-
-    /* =========================================================
-     *  状态显示
-     * ========================================================= */
-
-    function setStatus(text) {
-        const $el = $(`#${PANEL_ID} .xs-status`);
-        if ($el.length) $el.text(text);
-    }
-
-    async function refreshStatus() {
-        const ctx = SillyTavern.getContext();
-        const chatId = getChatFileId();
-        const lorebookName = resolveTargetLorebookName();
-        const chatLen = Array.isArray(ctx.chat) ? ctx.chat.length : 0;
-        let maxFloor = -1;
-        if (chatId && lorebookName) {
-            try {
-                const wi = await ctx.loadWorldInfo(lorebookName);
-                maxFloor = findMaxSummarizedFloor(wi?.entries || {}, chatId);
-            } catch (e) { dbg('refreshStatus loadWorldInfo failed', e); }
-        }
-        const parts = [];
-        parts.push(`聊天：${chatId || '(未打开)'}`);
-        parts.push(`世界书：${lorebookName || '(未设置)'}`);
-        parts.push(`总楼层：${chatLen}`);
-        parts.push(`已总结到：${maxFloor === -1 ? '从未' : `第 ${maxFloor + 1} 楼`}`);
-        const remain = Math.max(0, chatLen - (maxFloor + 1));
-        parts.push(`待总结：${remain}`);
-        setStatus(parts.join(' | '));
     }
 
     /* =========================================================
@@ -752,14 +672,6 @@
         <div class="inline-drawer-content">
 
             <div class="xs-section">
-                <div class="xs-section-title">状态</div>
-                <div class="xs-status">加载中…</div>
-                <div class="xs-row" style="margin-top:6px;">
-                    <button class="menu_button xs-refresh-btn"><i class="fa-solid fa-rotate"></i> 刷新</button>
-                </div>
-            </div>
-
-            <div class="xs-section">
                 <div class="xs-section-title">手动单次总结（指定楼层范围）</div>
                 <div class="xs-range-row">
                     <div class="xs-range-col">
@@ -771,7 +683,7 @@
                         <input type="number" class="text_pole xs-end-floor" min="1" placeholder="例如：50" />
                     </div>
                 </div>
-                <div class="xs-hint">范围包含起始与结束两端；起始楼层需小于等于结束楼层。结果写入「小总结-&lt;聊天ID&gt;-起-止」条目（同聊天多次总结会追加到同一条目）。</div>
+                <div class="xs-hint">范围包含起始与结束两端；起始楼层需小于等于结束楼层。任意楼层范围均可重复总结；同范围再次总结会覆盖对应「小总结-&lt;聊天ID&gt;-起-止」条目，不同范围则各自独立一条。</div>
                 <div class="xs-action-row">
                     <button class="menu_button xs-run-btn"><i class="fa-solid fa-bolt"></i> 开始总结</button>
                 </div>
@@ -785,7 +697,7 @@
                         <i class="fa-solid fa-arrows-rotate"></i>
                     </button>
                 </div>
-                <div class="xs-hint">选中的预设里所有启用的 prompt 会按其 prompt_order（针对当前角色）原样作为请求 messages 发出，role 保留原值。最后追加一条 user 消息：「总结提示词 + 待总结聊天内容」。</div>
+                <div class="xs-hint">选中的预设里所有启用的 prompt 会按其 prompt_order（针对当前角色）原样作为请求 messages 发出，role 保留原值。最后追加一条 user 消息：「总结提示词 + 聊天内容」。</div>
             </div>
 
             <div class="xs-section">
@@ -863,8 +775,7 @@
         if (!$root.length) return;
         const s = getSettings();
 
-        // 状态 & 运行
-        $root.on('click', '.xs-refresh-btn', () => refreshStatus());
+        // 手动总结
         $root.on('click', '.xs-run-btn', () => {
             const start = $root.find('.xs-start-floor').val();
             const end = $root.find('.xs-end-floor').val();
@@ -906,7 +817,6 @@
         $root.on('change', '.xs-lorebook-select', function () {
             getSettings().targetLorebook = String($(this).val() || '');
             persist();
-            refreshStatus();
         });
 
         // API
@@ -993,7 +903,6 @@
         refreshPresetDropdown();
         refreshLorebookDropdown();
         refreshModelDropdown();
-        refreshStatus();
     }
 
     function injectPanel() {
@@ -1026,9 +935,7 @@
 
         // 事件
         try {
-            ctx.eventSource.on(ctx.eventTypes.CHAT_CHANGED, () => refreshStatus());
             ctx.eventSource.on(ctx.eventTypes.PRESET_CHANGED, () => refreshPresetDropdown());
-            ctx.eventSource.on(ctx.eventTypes.WORLDINFO_UPDATED, () => refreshStatus());
             ctx.eventSource.on(ctx.eventTypes.MAIN_API_CHANGED, () => refreshPresetDropdown());
         } catch (e) {
             warn('事件监听绑定失败', e);
