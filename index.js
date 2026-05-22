@@ -351,6 +351,10 @@
      *  世界书读写
      * ========================================================= */
 
+    /**
+     * 每个聊天只保留一条「小总结-<chatId>-起-止」条目，多次总结全部追加到这条里。
+     * 条目名的起止 = 历次总结范围的并集（min(start), max(end)）。
+     */
     async function upsertSummaryEntry(lorebookName, chatId, startIdx0, endIdx0, summaryText) {
         const ctx = SillyTavern.getContext();
         const wi = await ctx.loadWorldInfo(lorebookName);
@@ -360,32 +364,64 @@
         const entries = wi.entries;
         const start1 = startIdx0 + 1;
         const end1 = endIdx0 + 1;
-        const entryName = `${SUMMARY_PREFIX}${chatId}-${start1}-${end1}`;
+        const prefix = `${SUMMARY_PREFIX}${chatId}-`;
 
-        let existing = null;
+        // 找当前聊天已有的所有同前缀条目（可能存在 v1.1.2 留下的多条碎片）
+        const allMatched = [];
         for (const uid of Object.keys(entries)) {
             const e = entries[uid];
             if (!e) continue;
-            if ((e.comment || '').trim() === entryName && e.disable !== true) {
-                existing = e;
-                break;
+            const c = (e.comment || '').trim();
+            if (c.startsWith(prefix)) {
+                const m = c.match(/-(\d+)-(\d+)$/);
+                const s = m ? (parseInt(m[1], 10) || 0) : 0;
+                const ed = m ? (parseInt(m[2], 10) || 0) : 0;
+                allMatched.push({ uid, entry: e, start: s, end: ed });
+            }
+        }
+        // 按起始楼层升序
+        allMatched.sort((a, b) => a.start - b.start || a.end - b.end);
+
+        let existing = null;
+        if (allMatched.length > 0) {
+            existing = allMatched[0].entry;
+            // 把后续碎片的正文按顺序合并进第一条（剥掉它们各自的引导文本）
+            for (let i = 1; i < allMatched.length; i++) {
+                const piece = allMatched[i];
+                let pieceContent = String(piece.entry.content || '');
+                const introIdx = pieceContent.indexOf(INTRODUCTORY_TEXT_FOR_LOREBOOK);
+                if (introIdx !== -1) {
+                    pieceContent = pieceContent.slice(introIdx + INTRODUCTORY_TEXT_FOR_LOREBOOK.length).replace(/^\s+/, '');
+                }
+                const sep = `\n\n---\n[楼层 ${piece.start}-${piece.end}]\n`;
+                existing.content = (existing.content || '') + sep + pieceContent;
+                // 删除碎片
+                delete entries[piece.uid];
+                log(`合并旧碎片 → 已并入 (原 UID ${piece.uid}, 范围 ${piece.start}-${piece.end})`);
             }
         }
 
-        const bodyContent = INTRODUCTORY_TEXT_FOR_LOREBOOK + '\n\n' + summaryText;
-
         if (existing) {
-            existing.content = bodyContent;
+            // 取所有历史碎片范围 + 本次范围的并集
+            const oldStart = allMatched.reduce((mn, x) => Math.min(mn, x.start || start1), start1);
+            const oldEnd = allMatched.reduce((mx, x) => Math.max(mx, x.end || end1), end1);
+            const mergedStart = Math.min(oldStart, start1);
+            const mergedEnd = Math.max(oldEnd, end1);
+            const newName = `${SUMMARY_PREFIX}${chatId}-${mergedStart}-${mergedEnd}`;
+            const separator = `\n\n---\n[楼层 ${start1}-${end1}]\n`;
+            existing.comment = newName;
+            existing.content = (existing.content || '') + separator + summaryText;
             existing.disable = false;
-            log(`覆盖小总结 → ${entryName} (UID ${existing.uid})`);
+            log(`追加小总结 → ${newName} (UID ${existing.uid}, 本次范围 ${start1}-${end1})`);
         } else {
             const newUid = nextEntryUid(entries);
+            const newName = `${SUMMARY_PREFIX}${chatId}-${start1}-${end1}`;
             entries[newUid] = {
                 uid: newUid,
                 key: [],
                 keysecondary: [],
-                comment: entryName,
-                content: bodyContent,
+                comment: newName,
+                content: INTRODUCTORY_TEXT_FOR_LOREBOOK + '\n\n' + summaryText,
                 constant: true,
                 vectorized: false,
                 selective: true,
@@ -413,7 +449,7 @@
                 cooldown: 0,
                 delay: 0,
             };
-            log(`新建小总结 → ${entryName} (UID ${newUid})`);
+            log(`新建小总结 → ${newName} (UID ${newUid})`);
         }
 
         await ctx.saveWorldInfo(lorebookName, wi, true);
@@ -689,7 +725,7 @@
                         <input type="number" class="text_pole xs-end-floor" min="1" placeholder="例如：50" />
                     </div>
                 </div>
-                <div class="xs-hint">范围包含起始与结束两端；起始楼层需小于等于结束楼层。任意楼层范围均可重复总结；同范围再次总结会覆盖对应「小总结-&lt;聊天ID&gt;-起-止」条目，不同范围则各自独立一条。</div>
+                <div class="xs-hint">范围包含起始与结束两端。同一聊天的多次总结会自动合并到同一条「小总结-&lt;聊天ID&gt;-起-止」条目中，条目名的起止 = 历次总结范围的并集。如果检测到本聊天已有多条历史碎片（旧版本残留），会在下次总结时自动合并为一条。</div>
                 <div class="xs-action-row">
                     <button class="menu_button xs-run-btn"><i class="fa-solid fa-bolt"></i> 开始总结</button>
                 </div>
