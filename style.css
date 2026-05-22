@@ -1,0 +1,116 @@
+/* SillyTavern 小总结助手 (XiaoSummary) 样式 */
+
+#xiao_summary_panel .xs-section {
+    margin-top: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--SmartThemeBorderColor, #4a4a4a);
+    border-radius: 6px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.1));
+}
+
+#xiao_summary_panel .xs-section-title {
+    font-weight: bold;
+    margin-bottom: 6px;
+    font-size: 13px;
+    opacity: 0.9;
+}
+
+/* 行内排版：默认 flex，但允许 wrap，并强制每个孩子按内容自适应 */
+#xiao_summary_panel .xs-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+}
+
+#xiao_summary_panel .xs-row > label {
+    flex: 0 0 auto;
+    min-width: 48px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* 关键修复：覆盖 SillyTavern 默认 .menu_button 在窄容器下被压成单字宽的问题 */
+#xiao_summary_panel .menu_button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: max-content !important;
+    white-space: nowrap !important;
+    padding: 6px 12px !important;
+    line-height: 1.2 !important;
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+}
+
+/* 文本框默认让出空间 */
+#xiao_summary_panel .xs-row > input.text_pole,
+#xiao_summary_panel .xs-row > select.text_pole {
+    flex: 1 1 120px;
+    min-width: 80px;
+}
+
+#xiao_summary_panel .xs-status {
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 12px;
+    padding: 4px 6px;
+    background: var(--SmartThemeQuoteColor, rgba(255, 255, 255, 0.06));
+    border-radius: 4px;
+    word-break: break-all;
+}
+
+#xiao_summary_panel .xs-hint {
+    margin-top: 4px;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+#xiao_summary_panel .xs-warn {
+    color: var(--warning, #e6a23c);
+    font-size: 12px;
+}
+
+#xiao_summary_panel .xs-summary-prompt {
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* 起止楼层输入框横排 */
+#xiao_summary_panel .xs-range-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+#xiao_summary_panel .xs-range-row .xs-range-col {
+    flex: 1 1 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 140px;
+}
+
+#xiao_summary_panel .xs-range-row .xs-range-col label {
+    font-size: 12px;
+    opacity: 0.85;
+    text-align: center;
+}
+
+#xiao_summary_panel .xs-range-row input.text_pole {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+}
+
+#xiao_summary_panel .xs-action-row {
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}

@@ -1,0 +1,14 @@
+{
+    "display_name": "小总结助手 (XiaoSummary)",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "dependencies": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "默默 & 萧然 (原作) / 90 & FLOW (代理改造) / summerpromise (插件化精简)",
+    "version": "1.1.0",
+    "homePage": "",
+    "auto_update": false,
+    "minimum_client_version": "1.12.0"
+}
